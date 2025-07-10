@@ -1,0 +1,1957 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hamiltonian Monte Carlo: Proper Implementation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #floating-label {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 1000;
+            transition: all 0.3s ease;
+            border: 2px solid;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            max-width: 600px;
+            text-align: center;
+        }
+        
+        #floating-label.momentum {
+            border-color: #ffd700;
+            background: rgba(255, 215, 0, 0.2);
+            color: #ffd700;
+        }
+        
+        #floating-label.exploring {
+            border-color: #00bfff;
+            background: rgba(0, 191, 255, 0.2);
+            color: #00bfff;
+        }
+        
+        #floating-label.deciding {
+            border-color: #ff8800;
+            background: rgba(255, 136, 0, 0.2);
+            color: #ff8800;
+        }
+        
+        #floating-label.accepted {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+        
+        #floating-label.rejected {
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.2);
+            color: #ff4444;
+        }
+        
+        #floating-label.idle {
+            border-color: #888;
+            background: rgba(136, 136, 136, 0.2);
+            color: #ccc;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 5px;
+            left: 17%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 5px;
+            border-radius: 15px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            padding: 3px 0;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #00ff88;
+        }
+        
+        #phase-indicator {
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 64px;
+            pointer-events: none;
+            z-index: 500;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        
+        #phase-indicator.show {
+            opacity: 1;
+        }
+        
+        .energy-bar {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 200px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .energy-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444, #ffff44, #44ff44);
+            transition: width 0.3s ease;
+            width: 50%;
+        }
+        
+        .energy-label {
+            position: absolute;
+            top: 25px;
+            right: 20px;
+            color: white;
+            font-size: 12px;
+            text-align: center;
+            width: 200px;
+        }
+        
+        #projection-container {
+            position: absolute;
+            top: 40%;
+            transform: translateY(-50%);
+            left: 20px;
+            width: 300px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+        }
+        
+        #projection-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #projection-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+        }
+        
+        #gradient-container {
+            position: absolute;
+            top: 40%;
+            transform: translateY(-50%);
+            right: 20px;
+            width: 300px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+        }
+        
+        #gradient-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gradient-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            margin: 10px 0;
+            width: 100%;
+            max-width: 300px;
+        }
+        
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .control-label {
+            color: white;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        
+        .control-value {
+            color: #00ff88;
+            font-weight: bold;
+            min-width: 40px;
+            text-align: right;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+        
+        .buttons-row {
+            display: flex;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        
+        #minimap-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 250px;
+            height: 250px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+        }
+        
+        #minimap-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #minimap-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+        }
+        
+        #interpretation-box {
+            position: absolute;
+            bottom: 280px;
+            right: 20px;
+            width: 250px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 200px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .tooltip.show {
+            opacity: 1;
+        }
+        
+        .momentum-arrow {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 20px solid #ffd700;
+            transform-origin: 50% 100%;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .momentum-arrow.show {
+            opacity: 1;
+        }
+        
+        .gradient-arrow {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 16px solid #ff00ff;
+            transform-origin: 50% 100%;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .gradient-arrow.show {
+            opacity: 1;
+        }
+        
+        .arrow-legend {
+            position: absolute;
+            bottom: 230px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 100;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 4px 0;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            border-radius: 3px;
+        }
+        
+        .momentum-color {
+            background-color: #ffd700;
+        }
+        
+        .gradient-color {
+            background-color: #ff00ff;
+        }
+        
+        .hamiltonian-bar {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            width: 200px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .hamiltonian-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff00ff, #00ffff);
+            transition: width 0.3s ease;
+            width: 50%;
+        }
+        
+        .hamiltonian-label {
+            position: absolute;
+            top: 55px;
+            right: 20px;
+            color: white;
+            font-size: 12px;
+            text-align: center;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="floating-label" class="idle">
+            🎯 Click Start to watch Hamiltonian Monte Carlo in action!
+        </div>
+        
+        <div id="hud">
+            <div style="font-weight: bold; margin-bottom: 10px;">📊 HMC Statistics</div>
+            <div class="stat-row">
+                <span>✅ Accepted:</span>
+                <span class="stat-value" id="accepted-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span>❌ Rejected:</span>
+                <span class="stat-value" id="rejected-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span>🎯 Success Rate:</span>
+                <span class="stat-value" id="success-rate">0%</span>
+            </div>
+            <div class="stat-row">
+                <span>⚡ Hamiltonian:</span>
+                <span class="stat-value" id="hamiltonian-value">0.00</span>
+            </div>
+        </div>
+        
+        <div id="projection-container">
+            <canvas id="projection-canvas"></canvas>
+            <div id="projection-label">2D Probability Landscape</div>
+        </div>
+        
+        <div id="gradient-container">
+            <canvas id="gradient-canvas"></canvas>
+            <div id="gradient-label">Gradient Vector Field</div>
+        </div>
+        
+        <div id="minimap-container">
+            <canvas id="minimap-canvas"></canvas>
+            <div id="minimap-label">Exploration History with Probability Contours</div>
+        </div>
+        
+        <div id="interpretation-box">
+            <div id="interpretation-text">Waiting for exploration to begin...</div>
+        </div>
+        
+        <div class="energy-bar">
+            <div class="energy-fill" id="energy-fill"></div>
+        </div>
+        <div class="energy-label" id="energy-label">Potential Energy (U): 0.00</div>
+        
+        <div class="hamiltonian-bar">
+            <div class="hamiltonian-fill" id="hamiltonian-fill"></div>
+        </div>
+        <div class="hamiltonian-label" id="hamiltonian-label">Hamiltonian (H): 0.00</div>
+        
+        <div id="phase-indicator">🚀</div>
+        
+        <div id="controls">
+            <div class="control-group">
+                <div class="control-row">
+                    <span class="control-label">Step Size:</span>
+                    <span class="control-value" id="step-size-value">0.1</span>
+                </div>
+                <input type="range" id="step-size-slider" min="0.01" max="0.5" step="0.01" value="0.1">
+                
+                <div class="control-row">
+                    <span class="control-label">Leapfrog Steps:</span>
+                    <span class="control-value" id="leapfrog-steps-value">20</span>
+                </div>
+                <input type="range" id="leapfrog-steps-slider" min="1" max="50" step="1" value="20">
+                
+                <div class="control-row">
+                    <span class="control-label">Mass (X):</span>
+                    <span class="control-value" id="mass-x-value">1.0</span>
+                </div>
+                <input type="range" id="mass-x-slider" min="0.1" max="5" step="0.1" value="1.0">
+                
+                <div class="control-row">
+                    <span class="control-label">Mass (Z):</span>
+                    <span class="control-value" id="mass-z-value">1.0</span>
+                </div>
+                <input type="range" id="mass-z-slider" min="0.1" max="5" step="0.1" value="1.0">
+                
+                <div class="control-row">
+                    <span class="control-label">Temperature:</span>
+                    <span class="control-value" id="temperature-value">1.0</span>
+                </div>
+                <input type="range" id="temperature-slider" min="0.1" max="5" step="0.1" value="1.0">
+            </div>
+            
+            <div class="buttons-row">
+                <button id="start-btn">🚀 Start HMC</button>
+                <button id="pause-btn" disabled>⏸️ Pause</button>
+                <button id="reset-btn">🔄 Reset</button>
+                <button id="speed-btn">⚡ Speed: Normal</button>
+            </div>
+        </div>
+        
+        <div class="momentum-arrow" id="momentum-arrow"></div>
+        <div class="gradient-arrow" id="gradient-arrow"></div>
+        <div class="tooltip" id="momentum-tooltip"></div>
+        
+        <div class="arrow-legend">
+            <div class="legend-item">
+                <div class="legend-color momentum-color"></div>
+                <span>Momentum Direction</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color gradient-color"></div>
+                <span>Gradient Direction</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, ball, landscape, trail = [];
+        let isRunning = false, isPaused = false;
+        let currentPosition = { x: 0, z: 0 };
+        let momentum = { x: 0, z: 0 };
+        let acceptedCount = 0, rejectedCount = 0;
+        let animationSpeed = 1;
+        let currentPhase = 'idle';
+        let stepCounter = 0;
+        let currentEnergy = 0;
+        let currentHamiltonian = 0;
+        let floatingLabel, phaseIndicator;
+        let projectionCanvas, projectionCtx, gradientCanvas, gradientCtx, minimapCanvas, minimapCtx;
+        let momentumArrow, gradientArrow, momentumTooltip;
+        let explorationHistory = [];
+        const maxTrailPoints = 4;
+        
+        // HMC parameters with interactive controls
+        let stepSize = 0.1;
+        let numSteps = 20;
+        let massMatrix = { x: 1.0, z: 1.0 };
+        let temperature = 1.0;
+        const landscapeSize = 10;
+        
+        // More realistic target probability distributions
+        function targetDistribution(x, z) {
+            // Banana-shaped distribution (common test case for MCMC)
+            const banana = Math.exp(-0.5 * (x*x/4 + (z + 0.03*x*x - 3)*(z + 0.03*x*x - 3)));
+            
+            // Heavy-tailed distribution (Cauchy-like)
+            const heavyTail = 1 / (1 + 0.2*(x-3)*(x-3) + 0.2*(z+3)*(z+3));
+            
+            // Correlated Gaussian
+            const corrGauss = Math.exp(-0.5 * (x*x + z*z - 0.8*x*z));
+            
+            // Mixture of distributions
+            return 0.5 * banana + 0.3 * heavyTail + 0.2 * corrGauss;
+        }
+        
+        // Potential energy (negative log probability)
+        function potentialEnergy(x, z) {
+            const prob = targetDistribution(x, z);
+            return -Math.log(prob + 1e-10); // Add small constant to avoid log(0)
+        }
+        
+        // Gradient of potential energy (analytical)
+        function potentialEnergyGradient(x, z) {
+            // Banana gradient
+            const bananaGradX = x/4 + 0.06*x*(z + 0.03*x*x - 3);
+            const bananaGradZ = (z + 0.03*x*x - 3);
+            
+            // Heavy tail gradient
+            const denom = (1 + 0.2*(x-3)*(x-3) + 0.2*(z+3)*(z+3));
+            const heavyGradX = 0.4*(x-3) / (denom * denom);
+            const heavyGradZ = 0.4*(z+3) / (denom * denom);
+            
+            // Correlated Gaussian gradient
+            const corrGradX = x - 0.4*z;
+            const corrGradZ = z - 0.4*x;
+            
+            // Combine gradients according to mixture weights
+            const banana = Math.exp(-0.5 * (x*x/4 + (z + 0.03*x*x - 3)*(z + 0.03*x*x - 3)));
+            const heavyTail = 1 / (1 + 0.2*(x-3)*(x-3) + 0.2*(z+3)*(z+3));
+            const corrGauss = Math.exp(-0.5 * (x*x + z*z - 0.8*x*z));
+            const total = 0.5 * banana + 0.3 * heavyTail + 0.2 * corrGauss;
+            
+            // Compute weighted gradient
+            const gradX = (0.5 * banana * bananaGradX + 0.3 * heavyTail * heavyGradX + 0.2 * corrGauss * corrGradX) / total;
+            const gradZ = (0.5 * banana * bananaGradZ + 0.3 * heavyTail * heavyGradZ + 0.2 * corrGauss * corrGradZ) / total;
+            
+            return { x: gradX, z: gradZ };
+        }
+        
+        // Kinetic energy
+        function kineticEnergy(p) {
+            return 0.5 * (p.x*p.x/massMatrix.x + p.z*p.z/massMatrix.z);
+        }
+        
+        // Hamiltonian
+        function hamiltonian(q, p) {
+            return potentialEnergy(q.x, q.z) + kineticEnergy(p);
+        }
+        
+        // Initialize the scene
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a1a);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(15, 12, 15);
+            camera.lookAt(0, 0, 0);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            // Get UI elements
+            floatingLabel = document.getElementById('floating-label');
+            phaseIndicator = document.getElementById('phase-indicator');
+            momentumArrow = document.getElementById('momentum-arrow');
+            gradientArrow = document.getElementById('gradient-arrow');
+            momentumTooltip = document.getElementById('momentum-tooltip');
+            
+            // Initialize 2D projections
+            initProjection();
+            initGradientProjection();
+            initMinimap();
+            
+            // Create landscape (probability surface)
+            createLandscape();
+            
+            // Create ball
+            createBall();
+            
+            // Add lighting
+            setupLighting();
+            
+            // Setup controls
+            setupControls();
+            
+            // Start animation loop
+            animate();
+        }
+        
+        function initProjection() {
+            projectionCanvas = document.getElementById('projection-canvas');
+            projectionCtx = projectionCanvas.getContext('2d');
+            
+            // Set canvas dimensions
+            projectionCanvas.width = 300;
+            projectionCanvas.height = 300;
+            
+            // Draw initial projection
+            drawProjection();
+        }
+        
+        function initGradientProjection() {
+            gradientCanvas = document.getElementById('gradient-canvas');
+            gradientCtx = gradientCanvas.getContext('2d');
+            
+            // Set canvas dimensions
+            gradientCanvas.width = 300;
+            gradientCanvas.height = 300;
+            
+            // Draw initial gradient field
+            drawGradientProjection();
+        }
+        
+        function initMinimap() {
+            minimapCanvas = document.getElementById('minimap-canvas');
+            minimapCtx = minimapCanvas.getContext('2d');
+            
+            // Set canvas dimensions
+            minimapCanvas.width = 250;
+            minimapCanvas.height = 250;
+            
+            // Draw initial minimap
+            drawMinimap();
+        }
+        
+        function drawProjection() {
+            const ctx = projectionCtx;
+            const width = projectionCanvas.width;
+            const height = projectionCanvas.height;
+            const scale = width / (landscapeSize * 2);
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            
+            // Vertical grid lines
+            for (let x = -landscapeSize; x <= landscapeSize; x += 1) {
+                const screenX = (x + landscapeSize) * scale;
+                ctx.beginPath();
+                ctx.moveTo(screenX, 0);
+                ctx.lineTo(screenX, height);
+                ctx.stroke();
+            }
+            
+            // Horizontal grid lines
+            for (let z = -landscapeSize; z <= landscapeSize; z += 1) {
+                const screenZ = (z + landscapeSize) * scale;
+                ctx.beginPath();
+                ctx.moveTo(0, screenZ);
+                ctx.lineTo(width, screenZ);
+                ctx.stroke();
+            }
+            
+            // Draw contour lines for probability
+            const maxProb = 0.5; // Adjusted for new distribution
+            const contourLevels = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45];
+            const colors = [
+                '#000033', '#000066', '#000099', '#0000cc', '#0000ff',
+                '#3333ff', '#6666ff', '#9999ff', '#ccccff', '#ffffff'
+            ];
+            
+            // Create a grid of probability values
+            const gridSize = 50;
+            const data = [];
+            for (let i = 0; i < gridSize; i++) {
+                data[i] = [];
+                for (let j = 0; j < gridSize; j++) {
+                    const x = (i / gridSize) * landscapeSize * 2 - landscapeSize;
+                    const z = (j / gridSize) * landscapeSize * 2 - landscapeSize;
+                    data[i][j] = targetDistribution(x, z);
+                }
+            }
+            
+            // Draw contour lines
+            ctx.lineWidth = 1;
+            for (let l = 0; l < contourLevels.length; l++) {
+                const level = contourLevels[l];
+                const color = colors[l % colors.length];
+                
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                
+                for (let i = 0; i < gridSize - 1; i++) {
+                    for (let j = 0; j < gridSize - 1; j++) {
+                        const x1 = (i / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const z1 = (j / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const x2 = ((i + 1) / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const z2 = ((j + 1) / gridSize) * landscapeSize * 2 - landscapeSize;
+                        
+                        const v1 = data[i][j] - level;
+                        const v2 = data[i + 1][j] - level;
+                        const v3 = data[i + 1][j + 1] - level;
+                        const v4 = data[i][j + 1] - level;
+                        
+                        // Find intersection points
+                        const points = [];
+                        if (v1 * v2 < 0) {
+                            const t = v1 / (v1 - v2);
+                            const x = x1 + t * (x2 - x1);
+                            const screenX = (x + landscapeSize) * scale;
+                            const screenZ = (z1 + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v2 * v3 < 0) {
+                            const t = v2 / (v2 - v3);
+                            const z = z1 + t * (z2 - z1);
+                            const screenX = (x2 + landscapeSize) * scale;
+                            const screenZ = (z + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v3 * v4 < 0) {
+                            const t = v3 / (v3 - v4);
+                            const x = x2 + t * (x1 - x2);
+                            const screenX = (x + landscapeSize) * scale;
+                            const screenZ = (z2 + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v4 * v1 < 0) {
+                            const t = v4 / (v4 - v1);
+                            const z = z2 + t * (z1 - z2);
+                            const screenX = (x1 + landscapeSize) * scale;
+                            const screenZ = (z + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        
+                        // Draw line segments
+                        if (points.length === 2) {
+                            ctx.moveTo(points[0].x, points[0].y);
+                            ctx.lineTo(points[1].x, points[1].y);
+                        }
+                    }
+                }
+                ctx.stroke();
+            }
+            
+            // Draw current position
+            const ballScreenX = (currentPosition.x + landscapeSize) * scale;
+            const ballScreenZ = (currentPosition.z + landscapeSize) * scale;
+            
+            // Change color based on phase
+            let ballColor;
+            switch(currentPhase) {
+                case 'momentum':
+                    ballColor = '#ffd700';
+                    break;
+                case 'exploring':
+                    ballColor = '#00bfff';
+                    break;
+                case 'deciding':
+                    ballColor = '#ff8800';
+                    break;
+                case 'accepted':
+                    ballColor = '#00ff88';
+                    break;
+                case 'rejected':
+                    ballColor = '#ff4444';
+                    break;
+                default:
+                    ballColor = '#ff6b6b';
+            }
+            
+            ctx.fillStyle = ballColor;
+            ctx.beginPath();
+            ctx.arc(ballScreenX, ballScreenZ, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw trail
+            for (let i = 0; i < trail.length; i++) {
+                const point = trail[i];
+                const pointX = (point.position.x + landscapeSize) * scale;
+                const pointZ = (point.position.z + landscapeSize) * scale;
+                
+                ctx.fillStyle = point.material.color.getStyle();
+                ctx.beginPath();
+                ctx.arc(pointX, pointZ, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Draw momentum vector if in momentum phase
+            if (currentPhase === 'momentum' || currentPhase === 'exploring') {
+                const momentumLength = Math.sqrt(momentum.x * momentum.x + momentum.z * momentum.z);
+                const normMomentum = {
+                    x: momentum.x / (momentumLength + 1e-6),
+                    z: momentum.z / (momentumLength + 1e-6)
+                };
+                
+                const arrowLength = Math.min(50, 50 * momentumLength * 0.5);
+                
+                // Draw arrow
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(ballScreenX, ballScreenZ);
+                ctx.lineTo(
+                    ballScreenX + normMomentum.x * arrowLength,
+                    ballScreenZ + normMomentum.z * arrowLength
+                );
+                ctx.stroke();
+                
+                // Draw arrowhead
+                const headSize = 8;
+                ctx.beginPath();
+                ctx.moveTo(
+                    ballScreenX + normMomentum.x * arrowLength,
+                    ballScreenZ + normMomentum.z * arrowLength
+                );
+                ctx.lineTo(
+                    ballScreenX + normMomentum.x * arrowLength - normMomentum.z * headSize,
+                    ballScreenZ + normMomentum.z * arrowLength + normMomentum.x * headSize
+                );
+                ctx.lineTo(
+                    ballScreenX + normMomentum.x * arrowLength + normMomentum.z * headSize,
+                    ballScreenZ + normMomentum.z * arrowLength - normMomentum.x * headSize
+                );
+                ctx.closePath();
+                ctx.fillStyle = '#ffd700';
+                ctx.fill();
+                
+                // Update 3D momentum arrow
+                updateMomentumArrow();
+            }
+            
+            // Draw gradient vector
+            const grad = potentialEnergyGradient(currentPosition.x, currentPosition.z);
+            const gradLength = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+            const normGrad = {
+                x: grad.x / (gradLength + 1e-6),
+                z: grad.z / (gradLength + 1e-6)
+            };
+            
+            const gradArrowLength = Math.min(50, 50 * gradLength * 5);
+            
+            // Draw arrow
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(ballScreenX, ballScreenZ);
+            ctx.lineTo(
+                ballScreenX - normGrad.x * gradArrowLength,
+                ballScreenZ - normGrad.z * gradArrowLength
+            );
+            ctx.stroke();
+            
+            // Draw arrowhead
+            const gradHeadSize = 6;
+            ctx.beginPath();
+            ctx.moveTo(
+                ballScreenX - normGrad.x * gradArrowLength,
+                ballScreenZ - normGrad.z * gradArrowLength
+            );
+            ctx.lineTo(
+                ballScreenX - normGrad.x * gradArrowLength + normGrad.z * gradHeadSize,
+                ballScreenZ - normGrad.z * gradArrowLength - normGrad.x * gradHeadSize
+            );
+            ctx.lineTo(
+                ballScreenX - normGrad.x * gradArrowLength - normGrad.z * gradHeadSize,
+                ballScreenZ - normGrad.z * gradArrowLength + normGrad.x * gradHeadSize
+            );
+            ctx.closePath();
+            ctx.fillStyle = '#ff00ff';
+            ctx.fill();
+            
+            // Update 3D gradient arrow
+            updateGradientArrow();
+        }
+        
+        function drawGradientProjection() {
+            const ctx = gradientCtx;
+            const width = gradientCanvas.width;
+            const height = gradientCanvas.height;
+            const scale = width / (landscapeSize * 2);
+            const gridSize = 15;
+            const cellSize = width / gridSize;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            
+            // Vertical grid lines
+            for (let x = 0; x <= gridSize; x++) {
+                const screenX = x * cellSize;
+                ctx.beginPath();
+                ctx.moveTo(screenX, 0);
+                ctx.lineTo(screenX, height);
+                ctx.stroke();
+            }
+            
+            // Horizontal grid lines
+            for (let y = 0; y <= gridSize; y++) {
+                const screenY = y * cellSize;
+                ctx.beginPath();
+                ctx.moveTo(0, screenY);
+                ctx.lineTo(width, screenY);
+                ctx.stroke();
+            }
+            
+            // Draw gradient vectors
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const x = (i / gridSize) * landscapeSize * 2 - landscapeSize;
+                    const z = (j / gridSize) * landscapeSize * 2 - landscapeSize;
+                    
+                    // Get gradient
+                    const grad = potentialEnergyGradient(x, z);
+                    
+                    // Normalize gradient for visualization
+                    const length = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+                    const normGrad = {
+                        x: grad.x / (length + 1e-6),
+                        z: grad.z / (length + 1e-6)
+                    };
+                    
+                    // Position in canvas
+                    const centerX = (i + 0.5) * cellSize;
+                    const centerY = (j + 0.5) * cellSize;
+                    
+                    // Arrow length (scaled by gradient magnitude)
+                    const arrowLength = Math.min(cellSize * 0.4, cellSize * 0.4 * length * 5);
+                    
+                    // Draw arrow
+                    ctx.strokeStyle = '#00ff88';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, centerY);
+                    ctx.lineTo(
+                        centerX - normGrad.x * arrowLength,
+                        centerY - normGrad.z * arrowLength
+                    );
+                    ctx.stroke();
+                    
+                    // Draw arrowhead
+                    const headSize = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(
+                        centerX - normGrad.x * arrowLength,
+                        centerY - normGrad.z * arrowLength
+                    );
+                    ctx.lineTo(
+                        centerX - normGrad.x * arrowLength + normGrad.z * headSize,
+                        centerY - normGrad.z * arrowLength - normGrad.x * headSize
+                    );
+                    ctx.lineTo(
+                        centerX - normGrad.x * arrowLength - normGrad.z * headSize,
+                        centerY - normGrad.z * arrowLength + normGrad.x * headSize
+                    );
+                    ctx.closePath();
+                    ctx.fillStyle = '#00ff88';
+                    ctx.fill();
+                }
+            }
+            
+            // Draw current position
+            const ballScreenX = (currentPosition.x + landscapeSize) * scale;
+            const ballScreenZ = (currentPosition.z + landscapeSize) * scale;
+            
+            // Change color based on phase
+            let ballColor;
+            switch(currentPhase) {
+                case 'momentum':
+                    ballColor = '#ffd700';
+                    break;
+                case 'exploring':
+                    ballColor = '#00bfff';
+                    break;
+                case 'deciding':
+                    ballColor = '#ff8800';
+                    break;
+                case 'accepted':
+                    ballColor = '#00ff88';
+                    break;
+                case 'rejected':
+                    ballColor = '#ff4444';
+                    break;
+                default:
+                    ballColor = '#ff6b6b';
+            }
+            
+            ctx.fillStyle = ballColor;
+            ctx.beginPath();
+            ctx.arc(ballScreenX, ballScreenZ, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw current gradient vector
+            const grad = potentialEnergyGradient(currentPosition.x, currentPosition.z);
+            const length = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+            const normGrad = {
+                x: grad.x / (length + 1e-6),
+                z: grad.z / (length + 1e-6)
+            };
+            
+            const arrowLength = Math.min(50, 50 * length * 5);
+            
+            // Draw arrow
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(ballScreenX, ballScreenZ);
+            ctx.lineTo(
+                ballScreenX - normGrad.x * arrowLength,
+                ballScreenZ - normGrad.z * arrowLength
+            );
+            ctx.stroke();
+            
+            // Draw arrowhead
+            const headSize = 8;
+            ctx.beginPath();
+            ctx.moveTo(
+                ballScreenX - normGrad.x * arrowLength,
+                ballScreenZ - normGrad.z * arrowLength
+            );
+            ctx.lineTo(
+                ballScreenX - normGrad.x * arrowLength + normGrad.z * headSize,
+                ballScreenZ - normGrad.z * arrowLength - normGrad.x * headSize
+            );
+            ctx.lineTo(
+                ballScreenX - normGrad.x * arrowLength - normGrad.z * headSize,
+                ballScreenZ - normGrad.z * arrowLength + normGrad.x * headSize
+            );
+            ctx.closePath();
+            ctx.fillStyle = '#ff00ff';
+            ctx.fill();
+        }
+        
+        function drawMinimap() {
+            const ctx = minimapCtx;
+            const width = minimapCanvas.width;
+            const height = minimapCanvas.height;
+            const scale = width / (landscapeSize * 2);
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw probability contours
+            const contourLevels = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45];
+            const colors = [
+                '#000033', '#000066', '#000099', '#0000cc', '#0000ff',
+                '#3333ff', '#6666ff', '#9999ff', '#ccccff', '#ffffff'
+            ];
+            
+            // Create a grid of probability values
+            const gridSize = 30;
+            const data = [];
+            for (let i = 0; i < gridSize; i++) {
+                data[i] = [];
+                for (let j = 0; j < gridSize; j++) {
+                    const x = (i / gridSize) * landscapeSize * 2 - landscapeSize;
+                    const z = (j / gridSize) * landscapeSize * 2 - landscapeSize;
+                    data[i][j] = targetDistribution(x, z);
+                }
+            }
+            
+            // Draw contour lines
+            ctx.lineWidth = 1;
+            for (let l = 0; l < contourLevels.length; l++) {
+                const level = contourLevels[l];
+                const color = colors[l % colors.length];
+                
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                
+                for (let i = 0; i < gridSize - 1; i++) {
+                    for (let j = 0; j < gridSize - 1; j++) {
+                        const x1 = (i / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const z1 = (j / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const x2 = ((i + 1) / gridSize) * landscapeSize * 2 - landscapeSize;
+                        const z2 = ((j + 1) / gridSize) * landscapeSize * 2 - landscapeSize;
+                        
+                        const v1 = data[i][j] - level;
+                        const v2 = data[i + 1][j] - level;
+                        const v3 = data[i + 1][j + 1] - level;
+                        const v4 = data[i][j + 1] - level;
+                        
+                        // Find intersection points
+                        const points = [];
+                        if (v1 * v2 < 0) {
+                            const t = v1 / (v1 - v2);
+                            const x = x1 + t * (x2 - x1);
+                            const screenX = (x + landscapeSize) * scale;
+                            const screenZ = (z1 + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v2 * v3 < 0) {
+                            const t = v2 / (v2 - v3);
+                            const z = z1 + t * (z2 - z1);
+                            const screenX = (x2 + landscapeSize) * scale;
+                            const screenZ = (z + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v3 * v4 < 0) {
+                            const t = v3 / (v3 - v4);
+                            const x = x2 + t * (x1 - x2);
+                            const screenX = (x + landscapeSize) * scale;
+                            const screenZ = (z2 + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        if (v4 * v1 < 0) {
+                            const t = v4 / (v4 - v1);
+                            const z = z2 + t * (z1 - z2);
+                            const screenX = (x1 + landscapeSize) * scale;
+                            const screenZ = (z + landscapeSize) * scale;
+                            points.push({ x: screenX, y: screenZ });
+                        }
+                        
+                        // Draw line segments
+                        if (points.length === 2) {
+                            ctx.moveTo(points[0].x, points[0].y);
+                            ctx.lineTo(points[1].x, points[1].y);
+                        }
+                    }
+                }
+                ctx.stroke();
+            }
+            
+            // Draw exploration history (all points)
+            for (let i = 0; i < explorationHistory.length; i++) {
+                const point = explorationHistory[i];
+                const pointX = (point.x + landscapeSize) * scale;
+                const pointZ = (point.z + landscapeSize) * scale;
+                
+                // Color based on whether the move was accepted or rejected
+                // Use green for accepted moves, red for rejected moves
+                const isAccepted = (i > 0 && explorationHistory[i].x !== explorationHistory[i-1].x && 
+                                    explorationHistory[i].z !== explorationHistory[i-1].z);
+                const color = isAccepted ? '#00ff88' : '#ff4444';
+                
+                ctx.fillStyle = color;
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath();
+                ctx.arc(pointX, pointZ, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Reset alpha
+            ctx.globalAlpha = 1.0;
+            
+            // Draw current position
+            const ballScreenX = (currentPosition.x + landscapeSize) * scale;
+            const ballScreenZ = (currentPosition.z + landscapeSize) * scale;
+            
+            // Change color based on phase
+            let ballColor;
+            switch(currentPhase) {
+                case 'momentum':
+                    ballColor = '#ffd700';
+                    break;
+                case 'exploring':
+                    ballColor = '#00bfff';
+                    break;
+                case 'deciding':
+                    ballColor = '#ff8800';
+                    break;
+                case 'accepted':
+                    ballColor = '#00ff88';
+                    break;
+                case 'rejected':
+                    ballColor = '#ff4444';
+                    break;
+                default:
+                    ballColor = '#ff6b6b';
+            }
+            
+            ctx.fillStyle = ballColor;
+            ctx.beginPath();
+            ctx.arc(ballScreenX, ballScreenZ, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw border
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, width, height);
+            
+            // Update interpretation text
+            updateInterpretationText();
+        }
+        
+        function updateInterpretationText() {
+            const interpretationBox = document.getElementById('interpretation-text');
+            if (explorationHistory.length < 2) {
+                interpretationBox.textContent = "Waiting for exploration to begin...";
+                return;
+            }
+            
+            const currentPoint = explorationHistory[explorationHistory.length - 1];
+            const prevPoint = explorationHistory.length > 1 ? explorationHistory[explorationHistory.length - 2] : currentPoint;
+            
+            const currentProb = targetDistribution(currentPoint.x, currentPoint.z);
+            const prevProb = targetDistribution(prevPoint.x, prevPoint.z);
+            const probDiff = currentProb - prevProb;
+            
+            const currentGrad = potentialEnergyGradient(currentPoint.x, currentPoint.z);
+            const gradLength = Math.sqrt(currentGrad.x * currentGrad.x + currentGrad.z * currentGrad.z);
+            
+            let interpretation = "";
+            
+            if (currentPhase === 'momentum') {
+                interpretation = "Sampling momentum from Gaussian distribution. " +
+                    "This helps explore the parameter space efficiently by adding kinetic energy.";
+            } 
+            else if (currentPhase === 'exploring') {
+                interpretation = "Simulating Hamiltonian dynamics using leapfrog integration. " +
+                    "The particle follows the gradients while conserving the Hamiltonian (total energy).";
+            }
+            else if (currentPhase === 'deciding') {
+                interpretation = "Evaluating Metropolis acceptance criterion. " +
+                    `Probability ratio: ${(currentProb/prevProb).toFixed(2)}. ` +
+                    "Will accept if ΔH ≤ 0 or with probability exp(-ΔH).";
+            }
+            else if (currentPhase === 'accepted') {
+                interpretation = "Move accepted! ΔH = " + 
+                    (hamiltonian(currentPoint, momentum) - hamiltonian(prevPoint, momentum)).toFixed(2) + 
+                    ". New probability: " + currentProb.toFixed(4) + 
+                    " (was " + prevProb.toFixed(4) + ")";
+            }
+            else if (currentPhase === 'rejected') {
+                interpretation = "Move rejected. ΔH = " + 
+                    (hamiltonian(currentPoint, momentum) - hamiltonian(prevPoint, momentum)).toFixed(2) + 
+                    ". Keeping previous position with probability " + prevProb.toFixed(4);
+            }
+            else {
+                interpretation = "The particle is stationary. " +
+                    `Current probability: ${currentProb.toFixed(4)}. ` +
+                    `Gradient strength: ${gradLength.toFixed(2)}`;
+            }
+            
+            interpretationBox.textContent = interpretation;
+        }
+        
+        function updateMomentumArrow() {
+            if (currentPhase !== 'momentum' && currentPhase !== 'exploring') {
+                momentumArrow.classList.remove('show');
+                momentumTooltip.classList.remove('show');
+                return;
+            }
+            
+            // Calculate screen position of the ball
+            const ballPos = ball.position.clone();
+            ballPos.project(camera);
+            
+            const x = (ballPos.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-(ballPos.y * 0.5) + 0.5) * window.innerHeight;
+            
+            // Calculate momentum direction
+            const momentumLength = Math.sqrt(momentum.x * momentum.x + momentum.z * momentum.z);
+            if (momentumLength < 0.1) {
+                momentumArrow.classList.remove('show');
+                momentumTooltip.classList.remove('show');
+                return;
+            }
+            
+            // Show momentum arrow
+            momentumArrow.style.left = `${x}px`;
+            momentumArrow.style.top = `${y}px`;
+            
+            // Calculate angle based on momentum direction (accounting for camera rotation)
+            const angle = Math.atan2(momentum.z, momentum.x);
+            momentumArrow.style.transform = `rotate(${angle}rad)`;
+            momentumArrow.classList.add('show');
+            
+            // Position tooltip near the arrow
+            momentumTooltip.style.left = `${x + 20}px`;
+            momentumTooltip.style.top = `${y - 20}px`;
+            momentumTooltip.textContent = `Momentum: (${momentum.x.toFixed(2)}, ${momentum.z.toFixed(2)})\nKinetic Energy: ${kineticEnergy(momentum).toFixed(2)}`;
+            momentumTooltip.classList.add('show');
+        }
+        
+        function updateGradientArrow() {
+            if (currentPhase === 'idle') {
+                gradientArrow.classList.remove('show');
+                return;
+            }
+            
+            // Calculate screen position of the ball
+            const ballPos = ball.position.clone();
+            ballPos.project(camera);
+            
+            const x = (ballPos.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-(ballPos.y * 0.5) + 0.5) * window.innerHeight;
+            
+            // Get gradient
+            const grad = potentialEnergyGradient(currentPosition.x, currentPosition.z);
+            const gradLength = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+            if (gradLength < 0.1) {
+                gradientArrow.classList.remove('show');
+                return;
+            }
+            
+            // Show gradient arrow
+            gradientArrow.style.left = `${x}px`;
+            gradientArrow.style.top = `${y}px`;
+            
+            // Calculate angle based on gradient direction (opposite direction)
+            const angle = Math.atan2(-grad.z, -grad.x);
+            gradientArrow.style.transform = `rotate(${angle}rad)`;
+            gradientArrow.classList.add('show');
+        }
+        
+        function createLandscape() {
+            const geometry = new THREE.PlaneGeometry(landscapeSize * 2, landscapeSize * 2, 100, 100);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x2a4d6b,
+                wireframe: false,
+                transparent: true,
+                opacity: 0.9,
+                shininess: 30
+            });
+            
+            // Create probability surface (higher probability = lower elevation)
+            const vertices = geometry.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const z = vertices[i + 1];
+                
+                // Map probability to height (inverse relationship)
+                const prob = targetDistribution(x, z);
+                const y = 5 * (1 - prob / 0.5); // Scale to make visible
+                
+                vertices[i + 2] = y;
+            }
+            
+            geometry.attributes.position.needsUpdate = true;
+            geometry.computeVertexNormals();
+            
+            landscape = new THREE.Mesh(geometry, material);
+            landscape.rotation.x = -Math.PI / 2;
+            landscape.receiveShadow = true;
+            scene.add(landscape);
+        }
+        
+        function createBall() {
+            const geometry = new THREE.SphereGeometry(0.3, 32, 32);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0xff6b6b,
+                shininess: 100,
+                transparent: true,
+                opacity: 0.9
+            });
+            
+            ball = new THREE.Mesh(geometry, material);
+            ball.position.set(0, 2, 0);
+            ball.castShadow = true;
+            
+            // Add glow effect
+            const glowGeometry = new THREE.SphereGeometry(0.35, 32, 32);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff6b6b,
+                transparent: true,
+                opacity: 0.3
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            ball.add(glow);
+            
+            scene.add(ball);
+        }
+        
+        function setupLighting() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            // Directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Point light for ball
+            const pointLight = new THREE.PointLight(0xffffff, 0.8, 15);
+            pointLight.position.set(0, 8, 0);
+            scene.add(pointLight);
+        }
+        
+        function setupControls() {
+            document.getElementById('start-btn').addEventListener('click', startHMC);
+            document.getElementById('pause-btn').addEventListener('click', pauseHMC);
+            document.getElementById('reset-btn').addEventListener('click', resetHMC);
+            document.getElementById('speed-btn').addEventListener('click', toggleSpeed);
+            
+            // Parameter controls
+            const stepSizeSlider = document.getElementById('step-size-slider');
+            const stepSizeValue = document.getElementById('step-size-value');
+            stepSizeSlider.addEventListener('input', function() {
+                stepSize = parseFloat(this.value);
+                stepSizeValue.textContent = stepSize.toFixed(2);
+            });
+            
+            const leapfrogStepsSlider = document.getElementById('leapfrog-steps-slider');
+            const leapfrogStepsValue = document.getElementById('leapfrog-steps-value');
+            leapfrogStepsSlider.addEventListener('input', function() {
+                numSteps = parseInt(this.value);
+                leapfrogStepsValue.textContent = numSteps;
+            });
+            
+            const massXSlider = document.getElementById('mass-x-slider');
+            const massXValue = document.getElementById('mass-x-value');
+            massXSlider.addEventListener('input', function() {
+                massMatrix.x = parseFloat(this.value);
+                massXValue.textContent = massMatrix.x.toFixed(1);
+            });
+            
+            const massZSlider = document.getElementById('mass-z-slider');
+            const massZValue = document.getElementById('mass-z-value');
+            massZSlider.addEventListener('input', function() {
+                massMatrix.z = parseFloat(this.value);
+                massZValue.textContent = massMatrix.z.toFixed(1);
+            });
+            
+            const temperatureSlider = document.getElementById('temperature-slider');
+            const temperatureValue = document.getElementById('temperature-value');
+            temperatureSlider.addEventListener('input', function() {
+                temperature = parseFloat(this.value);
+                temperatureValue.textContent = temperature.toFixed(1);
+            });
+        }
+        
+        function startHMC() {
+            if (!isRunning) {
+                isRunning = true;
+                isPaused = false;
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('pause-btn').disabled = false;
+                runHMCStep();
+            }
+        }
+        
+        function pauseHMC() {
+            isPaused = !isPaused;
+            document.getElementById('pause-btn').textContent = isPaused ? '▶️ Resume' : '⏸️ Pause';
+            if (!isPaused) {
+                runHMCStep();
+            }
+        }
+        
+        function resetHMC() {
+            isRunning = false;
+            isPaused = false;
+            acceptedCount = 0;
+            rejectedCount = 0;
+            currentPosition = { x: 0, z: 0 };
+            momentum = { x: 0, z: 0 };
+            stepCounter = 0;
+            explorationHistory = [];
+            
+            // Reset ball position and color
+            ball.position.set(0, 2, 0);
+            updateBallColor(0xff6b6b);
+            
+            // Clear trail
+            trail.forEach(point => scene.remove(point));
+            trail = [];
+            
+            // Reset UI
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('pause-btn').disabled = true;
+            document.getElementById('pause-btn').textContent = '⏸️ Pause';
+            updateUI();
+            
+            currentPhase = 'idle';
+            updateFloatingLabel();
+            
+            // Update projections
+            drawProjection();
+            drawGradientProjection();
+            drawMinimap();
+            
+            // Hide arrows
+            momentumArrow.classList.remove('show');
+            gradientArrow.classList.remove('show');
+            momentumTooltip.classList.remove('show');
+        }
+        
+        function toggleSpeed() {
+            animationSpeed = animationSpeed === 1 ? 3 : 1;
+            document.getElementById('speed-btn').textContent = 
+                animationSpeed === 1 ? '⚡ Speed: Normal' : '⚡ Speed: Fast';
+        }
+        
+        function runHMCStep() {
+            if (!isRunning || isPaused) return;
+            
+            setTimeout(() => {
+                performHMCIteration();
+                if (isRunning && !isPaused) {
+                    runHMCStep();
+                }
+            }, 3000 / animationSpeed);
+        }
+        
+        function performHMCIteration() {
+            // Add current position to exploration history
+            explorationHistory.push({ x: currentPosition.x, z: currentPosition.z });
+            drawMinimap();
+            
+            // Store initial position and momentum
+            const initialPosition = { x: currentPosition.x, z: currentPosition.z };
+            const initialMomentum = { x: momentum.x, z: momentum.z };
+            
+            // Phase 1: Sample new momentum
+            currentPhase = 'momentum';
+            updateFloatingLabel();
+            updateBallColor(0xffd700);
+            showPhaseIndicator('🚀');
+            
+            // Sample initial momentum from Gaussian distribution (scaled by mass matrix)
+            momentum.x = gaussianRandom() * Math.sqrt(massMatrix.x);
+            momentum.z = gaussianRandom() * Math.sqrt(massMatrix.z);
+            
+            // Calculate initial Hamiltonian
+            const initialHamiltonian = hamiltonian(initialPosition, momentum);
+            
+            setTimeout(() => {
+                // Phase 2: Simulate Hamiltonian dynamics
+                currentPhase = 'exploring';
+                updateFloatingLabel();
+                updateBallColor(0x00bfff);
+                showPhaseIndicator('🔍');
+                
+                // Make copy of initial momentum for leapfrog integration
+                const momentumCopy = { x: momentum.x, z: momentum.z };
+                
+                leapfrogSteps(initialPosition, momentumCopy, initialHamiltonian);
+            }, 2000 / animationSpeed);
+        }
+        
+        function leapfrogSteps(initialPosition, initialMomentum, initialHamiltonian) {
+            let stepCount = 0;
+            const positions = [];
+            const momentums = [];
+            
+            // Store initial state
+            positions.push({ x: currentPosition.x, z: currentPosition.z });
+            momentums.push({ x: initialMomentum.x, z: initialMomentum.z });
+            
+            function performStep() {
+                if (stepCount < numSteps) {
+                    // Get current gradient
+                    const grad = potentialEnergyGradient(currentPosition.x, currentPosition.z);
+                    
+                    // Leapfrog integration - first half momentum update
+                    momentum.x -= stepSize * grad.x * 0.5;
+                    momentum.z -= stepSize * grad.z * 0.5;
+                    
+                    // Full position update (scaled by mass matrix)
+                    currentPosition.x += stepSize * momentum.x / massMatrix.x;
+                    currentPosition.z += stepSize * momentum.z / massMatrix.z;
+                    
+                    // Keep within bounds
+                    currentPosition.x = Math.max(-landscapeSize, Math.min(landscapeSize, currentPosition.x));
+                    currentPosition.z = Math.max(-landscapeSize, Math.min(landscapeSize, currentPosition.z));
+                    
+                    // Second half momentum update
+                    const newGrad = potentialEnergyGradient(currentPosition.x, currentPosition.z);
+                    momentum.x -= stepSize * newGrad.x * 0.5;
+                    momentum.z -= stepSize * newGrad.z * 0.5;
+                    
+                    // Update ball position to follow surface
+                    const height = 5 * (1 - targetDistribution(currentPosition.x, currentPosition.z) / 0.5);
+                    ball.position.set(currentPosition.x, height + 0.8, currentPosition.z);
+                    
+                    // Add trail point that follows the surface
+                    const prob = targetDistribution(currentPosition.x, currentPosition.z);
+                    const normalizedProb = Math.min(1, prob / 0.5);
+                    const b = Math.round(normalizedProb * 255);
+                    const r = Math.round((1 - normalizedProb) * 255);
+                    const trailColor = `rgb(${r}, 0, ${b})`;
+                    addTrailPoint(currentPosition.x, height + 0.5, currentPosition.z, trailColor);
+                    
+                    // Store current state
+                    positions.push({ x: currentPosition.x, z: currentPosition.z });
+                    momentums.push({ x: momentum.x, z: momentum.z });
+                    
+                    // Update energy displays
+                    currentEnergy = potentialEnergy(currentPosition.x, currentPosition.z);
+                    currentHamiltonian = hamiltonian(currentPosition, momentum);
+                    updateUI();
+                    
+                    // Update projections
+                    drawProjection();
+                    drawGradientProjection();
+                    drawMinimap();
+                    
+                    stepCount++;
+                    setTimeout(performStep, 300 / animationSpeed);
+                } else {
+                    // Phase 3: Decision time
+                    currentPhase = 'deciding';
+                    updateFloatingLabel();
+                    updateBallColor(0xff8800);
+                    showPhaseIndicator('🤔');
+                    
+                    setTimeout(() => {
+                        // Calculate final Hamiltonian
+                        const finalHamiltonian = hamiltonian(currentPosition, momentum);
+                        
+                        // Metropolis acceptance criterion based on Hamiltonian difference
+                        const deltaH = finalHamiltonian - initialHamiltonian;
+                        const acceptanceProbability = Math.min(1, Math.exp(-deltaH));
+                        const accepted = Math.random() < acceptanceProbability;
+                        
+                        if (accepted) {
+                            // Accept the move
+                            currentPhase = 'accepted';
+                            updateFloatingLabel();
+                            updateBallColor(0x00ff88);
+                            showPhaseIndicator('✅');
+                            acceptedCount++;
+                            
+                            // Add bright green trail point
+                            const height = 5 * (1 - targetDistribution(currentPosition.x, currentPosition.z) / 0.5);
+                            addTrailPoint(currentPosition.x, height + 0.5, currentPosition.z, 0x00ff88);
+                            
+                            // Create acceptance explosion effect
+                            createExplosionEffect(currentPosition.x, height + 0.8, currentPosition.z, 0x00ff88);
+                            
+                            // Add to exploration history
+                            explorationHistory.push({ x: currentPosition.x, z: currentPosition.z });
+                        } else {
+                            // Reject the move
+                            currentPhase = 'rejected';
+                            updateFloatingLabel();
+                            updateBallColor(0xff4444);
+                            showPhaseIndicator('❌');
+                            rejectedCount++;
+                            
+                            // Create rejection effect
+                            const height = 5 * (1 - targetDistribution(initialPosition.x, initialPosition.z) / 0.5);
+                            createExplosionEffect(currentPosition.x, height + 0.8, currentPosition.z, 0xff4444);
+                            
+                            // Move ball back to initial position
+                            currentPosition.x = initialPosition.x;
+                            currentPosition.z = initialPosition.z;
+                            momentum.x = initialMomentum.x;
+                            momentum.z = initialMomentum.z;
+                            
+                            // Update ball position
+                            const newHeight = 5 * (1 - targetDistribution(currentPosition.x, currentPosition.z) / 0.5);
+                            ball.position.set(currentPosition.x, newHeight + 0.8, currentPosition.z);
+                            
+                            // Add to exploration history
+                            explorationHistory.push({ x: currentPosition.x, z: currentPosition.z });
+                        }
+                        
+                        updateUI();
+                        drawProjection();
+                        drawGradientProjection();
+                        drawMinimap();
+                        
+                        setTimeout(() => {
+                            updateBallColor(0xff6b6b);
+                            hidePhaseIndicator();
+                            if (isRunning && !isPaused) {
+                                runHMCStep();
+                            }
+                        }, 3000 / animationSpeed);
+                    }, 2000 / animationSpeed);
+                }
+            }
+            
+            performStep();
+        }
+        
+        function createExplosionEffect(x, y, z, color) {
+            const particleCount = 15;
+            const particles = [];
+            
+            for (let i = 0; i < particleCount; i++) {
+                const geometry = new THREE.SphereGeometry(0.05, 8, 8);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const particle = new THREE.Mesh(geometry, material);
+                particle.position.set(x, y, z);
+                
+                // Random velocity
+                particle.velocity = {
+                    x: (Math.random() - 0.5) * 4,
+                    y: Math.random() * 3 + 1,
+                    z: (Math.random() - 0.5) * 4
+                };
+                
+                scene.add(particle);
+                particles.push(particle);
+            }
+            
+            // Animate particles
+            const startTime = Date.now();
+            const duration = 1500;
+            
+            function animateParticles() {
+                const elapsed = Date.now() - startTime;
+                const progress = elapsed / duration;
+                
+                particles.forEach(particle => {
+                    particle.position.x += particle.velocity.x * 0.02;
+                    particle.position.y += particle.velocity.y * 0.02;
+                    particle.position.z += particle.velocity.z * 0.02;
+                    particle.velocity.y -= 0.08; // Gravity
+                    
+                    // Make particles follow surface when they get close
+                    const surfaceHeight = 5 * (1 - targetDistribution(particle.position.x, particle.position.z) / 0.5);
+                    if (particle.position.y < surfaceHeight + 0.2) {
+                        particle.position.y = surfaceHeight + 0.2;
+                        particle.velocity.y = Math.abs(particle.velocity.y) * 0.5; // Bounce
+                    }
+                    
+                    particle.material.opacity = 1 - progress;
+                });
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animateParticles);
+                } else {
+                    particles.forEach(particle => scene.remove(particle));
+                }
+            }
+            
+            animateParticles();
+        }
+        
+        function updateBallColor(color) {
+            if (typeof color === 'string') {
+                ball.material.color.setStyle(color);
+                ball.children[0].material.color.setStyle(color); // Glow effect
+            } else {
+                ball.material.color.setHex(color);
+                ball.children[0].material.color.setHex(color); // Glow effect
+            }
+        }
+        
+        function addTrailPoint(x, y, z, color = 0xffffff) {
+            const geometry = new THREE.SphereGeometry(0.08, 12, 12);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: typeof color === 'string' ? new THREE.Color(color) : color,
+                transparent: true,
+                opacity: 0.8
+            });
+            const point = new THREE.Mesh(geometry, material);
+            point.position.set(x, y, z);
+            scene.add(point);
+            trail.push(point);
+            
+            // Add glow
+            const glowGeometry = new THREE.SphereGeometry(0.12, 12, 12);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: typeof color === 'string' ? new THREE.Color(color) : color,
+                transparent: true,
+                opacity: 0.3
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            glow.position.set(x, y, z);
+            scene.add(glow);
+            trail.push(glow);
+            
+            // Limit trail length (only show last 4 moves)
+            while (trail.length > maxTrailPoints * 2) { // *2 because we add both point and glow
+                const oldPoint = trail.shift();
+                scene.remove(oldPoint);
+            }
+        }
+        
+        function updateFloatingLabel() {
+            const messages = {
+                idle: "🎯 Click Start to watch Hamiltonian Monte Carlo in action!",
+                momentum: "🚀 Sampling momentum from Gaussian distribution",
+                exploring: "🔍 Simulating Hamiltonian dynamics with leapfrog integration",
+                deciding: "🤔 Evaluating Metropolis acceptance criterion",
+                accepted: "✅ Move accepted! Hamiltonian conserved within tolerance",
+                rejected: "❌ Move rejected to maintain detailed balance"
+            };
+            
+            floatingLabel.textContent = messages[currentPhase];
+            floatingLabel.className = currentPhase;
+        }
+        
+        function showPhaseIndicator(emoji) {
+            phaseIndicator.textContent = emoji;
+            phaseIndicator.classList.add('show');
+        }
+        
+        function hidePhaseIndicator() {
+            phaseIndicator.classList.remove('show');
+        }
+        
+        function updateUI() {
+            document.getElementById('accepted-count').textContent = acceptedCount;
+            document.getElementById('rejected-count').textContent = rejectedCount;
+            
+            const total = acceptedCount + rejectedCount;
+            const successRate = total > 0 ? Math.round((acceptedCount / total) * 100) : 0;
+            document.getElementById('success-rate').textContent = successRate + '%';
+            
+            // Update energy bars
+            const normalizedEnergy = Math.max(0, Math.min(1, currentEnergy / 10));
+            document.getElementById('energy-fill').style.width = (normalizedEnergy * 100) + '%';
+            document.getElementById('energy-label').textContent = `Potential Energy (U): ${currentEnergy.toFixed(2)}`;
+            
+            // Calculate current Hamiltonian
+            currentHamiltonian = hamiltonian(currentPosition, momentum);
+            const normalizedHamiltonian = Math.max(0, Math.min(1, currentHamiltonian / 10));
+            document.getElementById('hamiltonian-fill').style.width = (normalizedHamiltonian * 100) + '%';
+            document.getElementById('hamiltonian-label').textContent = `Hamiltonian (H): ${currentHamiltonian.toFixed(2)}`;
+            document.getElementById('hamiltonian-value').textContent = currentHamiltonian.toFixed(2);
+        }
+        
+        // Gaussian random number generator
+        function gaussianRandom() {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random();
+            while(v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Rotate camera around the scene
+            const time = Date.now() * 0.0003;
+            camera.position.x = Math.cos(time) * 18;
+            camera.position.z = Math.sin(time) * 18;
+            camera.position.y = 16;
+            camera.lookAt(0, -1, 0);
+            
+            // Update momentum and gradient arrows
+            updateMomentumArrow();
+            updateGradientArrow();
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize everything
+        init();
+    </script>
+</body>
+</html>
