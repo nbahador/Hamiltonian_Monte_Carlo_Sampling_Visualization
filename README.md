@@ -68,7 +68,7 @@ HMC is **more efficient** than traditional MCMC methods because it uses gradient
 
 ---
 
-![Conceptual Demo](https://github.com/nbahador/Hamiltonian_Monte_Carlo_Sampling_Visualization/blob/main/img2.png)
+![Conceptual Demo](https://github.com/nbahador/Hamiltonian_Monte_Carlo_Sampling_Visualization/blob/main/img_2.png)
 
 [**View Conceptual Demo: HMC for Adaptive Agentic Systems**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization/Conceptual%20Demo%20HMC%20for%20Adaptive%20Agentic%20Systems.html)
 
