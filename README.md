@@ -1,4 +1,5 @@
 # Hamiltonian Monte Carlo Sampling Visualization
+This is an **educational tool** for understanding HMC, a key algorithm in Bayesian statistics and machine learning!
 
 ![HMC Visualization Preview](https://github.com/nbahador/Hamiltonian_Monte_Carlo_Sampling_Visualization/blob/main/img.png)
 
@@ -6,7 +7,7 @@
 
 ## 🔗 Interactive Demo
 
-[**View Live Demo**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization//Hamiltonian%20Monte%20Carlo%20Sampling.html)
+[**View Live Demo**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization/Hamiltonian%20Monte%20Carlo%20Sampling.html)
 
 ---
 
@@ -67,4 +68,6 @@ HMC is **more efficient** than traditional MCMC methods because it uses gradient
 
 ---
 
-This is an **educational tool** for understanding HMC, a key algorithm in Bayesian statistics and machine learning! 🚀
+[**View Conceptual Demo HMC for Adaptive Agentic Systems**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization/Conceptual Demo HMC for Adaptive Agentic Systems.html)
+
+Hamiltonian Monte Carlo sampling can be integrated with agentic workflows to create self-improving service systems. HMC samples from posterior distributions of transition probabilities using citizen satisfaction data, enabling continuous optimization while preserving ergodic properties and convergence guarantees.
