@@ -68,6 +68,8 @@ HMC is **more efficient** than traditional MCMC methods because it uses gradient
 
 ---
 
-[**Conceptual Demo: HMC for Adaptive Agentic Systems**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization/Conceptual%20Demo%20HMC%20for%20Adaptive%20Agentic%20Systems.html)
+![Conceptual Demo](https://github.com/nbahador/Hamiltonian_Monte_Carlo_Sampling_Visualization/blob/main/img2.png)
+
+[**View Conceptual Demo: HMC for Adaptive Agentic Systems**](https://nbahador.github.io/Hamiltonian_Monte_Carlo_Sampling_Visualization/Conceptual%20Demo%20HMC%20for%20Adaptive%20Agentic%20Systems.html)
 
 Hamiltonian Monte Carlo (HMC) sampling can be integrated with agentic workflows to create self-improving service systems. HMC samples from posterior distributions of transition probabilities using citizen satisfaction data, enabling continuous optimization while preserving ergodic properties and convergence guarantees.
